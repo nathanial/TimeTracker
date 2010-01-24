@@ -1,0 +1,15 @@
+<project name="TimeTracker" default="run" basedir=".">
+  <target name="run">
+    <java classname="clojure.main">
+      <classpath>
+	<fileset dir="/Users/nathan/Libraries/httpclient/lib">
+	  <include name="**/*.jar" />
+	</fileset>
+	<pathelement location="."/>
+	<pathelement location="/Users/nathan/Libraries/sqlitejdbc.jar" />
+	<pathelement location="/Users/nathan/Applications/clojure/clojure.jar"/>
+      </classpath>
+      <arg value="basecamp/main.clj" />
+    </java>
+  </target>
+</project>
