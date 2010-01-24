@@ -33,8 +33,22 @@
 			   "time_entries/report.xml?"
 			   "subject_id=" person-uuid "&"
 			   "from=20090801&"
-			   "to=20100201"))
-	response-handler (BasicResponseHandler.)]
+			   "to=20100201"))]
+    (.. client (getCredentialsProvider)
+	(setCredentials AuthScope/ANY
+			(UsernamePasswordCredentials. username password)))
+    (doto get
+      (.addHeader "Accept" "application/xml")
+      (.addHeader "Content-Type" "application/xml"))
+    (let [response (.execute client get)
+	  response-body (.. response (getEntity) (getContent))
+	  result (parse response-body)]
+      (.. client (getConnectionManager) (shutdown))
+      result)))
+
+(defn fetch-projects []
+  (let [client (DefaultHttpClient.)
+	get (HttpGet. (str base-url "projects.xml"))]
     (.. client (getCredentialsProvider)
 	(setCredentials AuthScope/ANY
 			(UsernamePasswordCredentials. username password)))
