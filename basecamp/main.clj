@@ -5,5 +5,5 @@
 
 (Class/forName "org.sqlite.JDBC")
 
-(gui/refresh)
+(gui/refresh-people)
 (gui/run)

@@ -2,11 +2,12 @@
   (:require [basecamp.person :as person] [basecamp.get :as get]
 	    [basecamp.time :as time]
 	    [basecamp.project :as project])
-  (:import (javax.swing JFrame JPanel JLabel JButton
+  (:import (javax.swing JFrame JPanel JLabel JButton JDialog
 			JSplitPane UIManager JList DefaultListModel
 			JScrollPane JTable JOptionPane ListSelectionModel
-			SortOrder JMenuBar JMenu JMenuItem)
-	   (javax.swing.table DefaultTableModel)
+			SortOrder JMenuBar JMenu JMenuItem JTabbedPane
+			JCheckBox DefaultCellEditor)
+	   (javax.swing.table DefaultTableModel TableCellRenderer)
 	   (javax.swing.event ListSelectionListener TableModelEvent)
 	   (java.awt Dimension)
 	   (java.awt.event ActionListener)
@@ -20,7 +21,6 @@
 					     ~@body)))
 
 (defstruct GUI 
-  :all-people 
   :frame 
   :left-panel 
   :right-panel 
@@ -31,6 +31,8 @@
   :time-scroll-pane 
   :menu-bar 
   :file-menu)
+
+(def all-people (ref []))
 
 (def interface (ref nil))
 
@@ -59,30 +61,78 @@
 				(:project-name time) (:description time)])))
     (.revalidate time-table)))
 
+(defn show-export-dialog []
+  (let [dialog (JDialog. )
+	panel (JPanel. (MigLayout.))]
+    (.. dialog (getContentPane) (add panel))
+    (doto panel
+      (.add (JLabel. "Export")))
+    (.setSize dialog (Dimension. 100 100))
+    (.show dialog)))
+
+(defn show-refresh-dialog []
+  (let [dialog (JDialog. )
+	panel (JPanel. (MigLayout.))]
+    (.. dialog (getContentPane) (add panel))
+    (doto panel
+      (.add (JLabel. "Refresh")))
+    (.setSize dialog (Dimension. 100 100))
+    (.show dialog)))
+
+(defn create-person-table [people]
+  (let [model (proxy [DefaultTableModel] []
+		(isCellEditable [row col] (= col 2)))
+	table (proxy [JXTable] [model]
+		(getColumnClass [col]
+				(if (= 2 col)
+				  (Class/forName "java.lang.Boolean")
+				  (Class/forName "java.lang.Object"))))]
+    (doto model
+      (.addColumn "Name" (into-array (map (fn [p] (str (:firstname p) " " (:lastname p))) people)))
+      (.addColumn "Email" (into-array (map :email people)))
+      (.addColumn "Notify" (into-array (map (fn [x] false) people))))
+    (.. table (getColumnModel) (getColumn 2) (setMaxWidth 75))
+    (.revalidate table)
+    table))
+
+(defn show-email-dialog []
+  (let [people @all-people
+	dialog (JDialog. (:frame @interface))
+	panel (JPanel. (MigLayout. ))
+	person-table (create-person-table people)
+	person-scroll-pane (JScrollPane. person-table)]
+    (.. dialog (getContentPane) (add panel))
+    (doto panel
+      (.add person-scroll-pane "grow,push,wrap")
+      (.add (JButton. "Notify...") "align right"))
+    (.revalidate person-table)
+    (.setSize dialog (Dimension. 400 300))
+    (.show dialog)))
+
 (defn setup-file-menu [_interface]
   (doto (:file-menu _interface)
     (.add (doto (JMenuItem. "Refresh")
 	    (.addActionListener 
 	     (proxy [ActionListener] []
 	       (actionPerformed [e]
-				(JOptionPane/showMessageDialog (:frame _interface) 
-							       "you pressed refresh!"))))))
+				(show-refresh-dialog))))))
     (.addSeparator)
     (.add (doto (JMenuItem. "Export...")
 	    (.addActionListener
 	     (proxy [ActionListener] []
 	       (actionPerformed [e]
-				(JOptionPane/showMessageDialog (:frame _interface)
-							       "you pressed export!"))))))
-    (.add (doto (JMenuItem. "Notify...")
+				(show-export-dialog))))))
+    (.add (doto (JMenuItem. "Email...")
 	    (.addActionListener
 	     (proxy [ActionListener] []
 	       (actionPerformed [e]
-				(JOptionPane/showMessageDialog (:frame _interface)
-							       "you pressed notify!"))))))))
+				(show-email-dialog))))))))
 
 (defn setup-time-table [_interface]
-  (let [time-table (:time-table _interface)]
+  (let [time-table (:time-table _interface)
+	model (proxy [DefaultTableModel] []
+		(isCellEditable [row col] false))]
+    (.setModel time-table model)
     (doto (.getModel time-table)
       (.addColumn "Date")
       (.addColumn "Hours")

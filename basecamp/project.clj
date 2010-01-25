@@ -22,3 +22,5 @@
       :id (id project)
       :name (_name project))))
 
+(defn find-with-id [projects pid]
+  (first (filter #(= pid (:id %)) projects)))
