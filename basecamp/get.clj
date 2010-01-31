@@ -9,16 +9,23 @@
 	     ResultSet)))
 
 (def base-url "http://erdosmiller.basecamphq.com/")
-(def username "nathanial")
-(def password "ribbit22")
+(def credentials (ref nil))
+
+(defn guard-credentials []
+  (when (nil? @credentials)
+    (throw (Exception. "Neither username nor password may be nil"))))
+
+(defn create-auth-credentials []
+  (let [cred @credentials]
+    (UsernamePasswordCredentials. (first cred) (second cred))))
 
 (defn fetch-people []
+  (guard-credentials)
   (let [client (DefaultHttpClient.)
 	get (HttpGet. (str base-url "people.xml"))
 	response-handler (BasicResponseHandler.)]
     (.. client (getCredentialsProvider) 
-	(setCredentials AuthScope/ANY 
-			(UsernamePasswordCredentials. username password)))
+	(setCredentials AuthScope/ANY (create-auth-credentials)))
     (doto get
       (.addHeader "Accept" "application/xml")
       (.addHeader "Content-Type" "application/xml"))
@@ -27,16 +34,15 @@
       (.. client (getConnectionManager) (shutdown))
       result)))
 
-(defn fetch-times [person-uuid]
+(defn fetch-times []
+  (guard-credentials)
   (let [client (DefaultHttpClient.)
 	get (HttpGet. (str base-url 
 			   "time_entries/report.xml?"
-			   "subject_id=" person-uuid "&"
 			   "from=20090801&"
 			   "to=20100201"))]
     (.. client (getCredentialsProvider)
-	(setCredentials AuthScope/ANY
-			(UsernamePasswordCredentials. username password)))
+	(setCredentials AuthScope/ANY (create-auth-credentials)))
     (doto get
       (.addHeader "Accept" "application/xml")
       (.addHeader "Content-Type" "application/xml"))
@@ -47,11 +53,11 @@
       result)))
 
 (defn fetch-projects []
+  (guard-credentials)
   (let [client (DefaultHttpClient.)
 	get (HttpGet. (str base-url "projects.xml"))]
     (.. client (getCredentialsProvider)
-	(setCredentials AuthScope/ANY
-			(UsernamePasswordCredentials. username password)))
+	(setCredentials AuthScope/ANY (create-auth-credentials)))
     (doto get
       (.addHeader "Accept" "application/xml")
       (.addHeader "Content-Type" "application/xml"))

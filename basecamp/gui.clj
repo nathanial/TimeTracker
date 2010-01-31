@@ -2,14 +2,15 @@
   (:require [basecamp.person :as person] [basecamp.get :as get]
 	    [basecamp.time :as time]
 	    [basecamp.project :as project])
-  (:import (javax.swing JFrame JPanel JLabel JButton JDialog
+  (:import (javax.swing JFrame JPanel JLabel JButton JDialog JPasswordField
 			JSplitPane UIManager JList DefaultListModel
 			JScrollPane JTable JOptionPane ListSelectionModel
 			SortOrder JMenuBar JMenu JMenuItem JTabbedPane
-			JCheckBox DefaultCellEditor)
+			JCheckBox DefaultCellEditor JTextField
+			JCheckBoxMenuItem JProgressBar)
 	   (javax.swing.table DefaultTableModel TableCellRenderer)
-	   (javax.swing.event ListSelectionListener TableModelEvent)
-	   (java.awt Dimension)
+	   (javax.swing.event ListSelectionListener TableModelEvent TableModelListener)
+	   (java.awt Dimension Dialog Toolkit)
 	   (java.awt.event ActionListener)
 	   (org.jdesktop.swingx JXTable)
 	   (net.miginfocom.swing MigLayout)))
@@ -30,23 +31,57 @@
   :time-table 
   :time-scroll-pane 
   :menu-bar 
-  :file-menu)
+  :file-menu
+  :view-menu
+  :show-all-users)
 
 (def all-people (ref []))
 
 (def interface (ref nil))
 
+(def refresh-dialog (ref nil))
+
+(def selected-person (ref nil))
+
+(declare move-to-center refresh-person-list show-times-for)
+
+(defn show-refresh-progress []
+  (swing
+    (let [dialog (JDialog. )
+	  panel (JPanel. (MigLayout. ))
+	  progress (JProgressBar. )]
+      (doto progress
+	(.setIndeterminate true))
+      (doto panel
+	(.add (JLabel. "Refreshing Data") "wrap, align 50%")
+	(.add progress "push,grow"))
+      (.. dialog (getContentPane) (add panel))
+      (dosync 
+       (ref-set refresh-dialog dialog))
+      (doto dialog
+	(.setSize (Dimension. 200 100))
+	(move-to-center)
+	(.show)))))
+
 (defn refresh-people []
+  (show-refresh-progress)
   (let [projects (project/extract (get/fetch-projects))
-	people (let [people (person/extract (get/fetch-people))] 
+	people (let [people (person/extract (get/fetch-people))
+		     times (time/extract (get/fetch-times))] 
 		 (for [person people]
-		   (let [times (time/extract (get/fetch-times (:id person)))
-			 times (for [time times]
+		   (let [times (for [time times]
 				 (assoc time :project-name 
 					(:name (project/find-with-id projects (:project-id time)))))]
-		     (assoc person :times times))))]
+		     (assoc person :times 
+			    (filter #(= (:person-id %) (:id person)) times)))))]
     (dosync 
-     (ref-set all-people people))))
+     (ref-set all-people people))
+    (when (not= nil @interface)
+      (swing
+	(refresh-person-list)
+	(let [p @selected-person]
+	  (show-times-for (person/find-by-name (:firstname p) (:lastname p) @all-people)))
+	(.hide @refresh-dialog)))))
 
 (defn show-times-for [person]
   (let [times (:times person)
@@ -87,6 +122,19 @@
 				(if (= 2 col)
 				  (Class/forName "java.lang.Boolean")
 				  (Class/forName "java.lang.Object"))))]
+    (.addTableModelListener model 
+			    (proxy [TableModelListener] []
+			      (tableChanged [e]
+					    (let [col (.getColumn e)
+						  first-row (.getFirstRow e)
+						  last-row (.getLastRow e)]
+					      (when (> first-row 0)
+						(JOptionPane/showMessageDialog 
+						 nil
+						 (let [person (nth people first-row)]
+						   (str (:firstname person) " "
+							(:lastname person)))))
+))))
     (doto model
       (.addColumn "Name" (into-array (map (fn [p] (str (:firstname p) " " (:lastname p))) people)))
       (.addColumn "Email" (into-array (map :email people)))
@@ -115,7 +163,8 @@
 	    (.addActionListener 
 	     (proxy [ActionListener] []
 	       (actionPerformed [e]
-				(show-refresh-dialog))))))
+				(doto (Thread. (fn [] (refresh-people)))
+				  (.start)))))))
     (.addSeparator)
     (.add (doto (JMenuItem. "Export...")
 	    (.addActionListener
@@ -127,6 +176,20 @@
 	     (proxy [ActionListener] []
 	       (actionPerformed [e]
 				(show-email-dialog))))))))
+
+(defn toggle-show-all-users []
+  (dosync 
+   (let [value (:show-all-users @interface)]
+     (alter interface assoc :show-all-users (not value))))
+  (refresh-person-list))
+
+(defn setup-view-menu [_interface]
+  (doto (:view-menu _interface)
+    (.add (doto (JCheckBoxMenuItem. "Show All Users")
+	    (.addActionListener 
+	     (proxy [ActionListener] []
+	       (actionPerformed [e]
+				(toggle-show-all-users))))))))
 
 (defn setup-time-table [_interface]
   (let [time-table (:time-table _interface)
@@ -144,19 +207,71 @@
     (doto time-table
       (.setSortOrder "Date" SortOrder/DESCENDING))))
 
+(defn refresh-person-list []
+  (let [_interface @interface
+	person-list (:person-list _interface)
+	people @all-people
+	show-all-users (:show-all-users _interface)
+	model (.getModel person-list)]
+    (.clear model)
+    (doseq [person people]
+      (when (or show-all-users (not= 0 (count (:times person))))
+	(.addElement model (str (:firstname person) " " (:lastname person)))))))
+
 (defn setup-person-list [_interface]
   (let [person-list (:person-list _interface)
-	people @all-people]
+	people @all-people
+	show-all-users (:show-all-users _interface)
+	model (.getModel person-list)]
+    (doseq [person people]
+      (when (or show-all-users (not= 0 (count (:times person))))
+	(.addElement model (str (:firstname person) " " (:lastname person)))))
     (doto (:person-list _interface)
       (.setSelectionMode ListSelectionModel/SINGLE_SELECTION)
       (.addListSelectionListener
        (proxy [ListSelectionListener] []
 	 (valueChanged [e]
 		       (when (not (.getValueIsAdjusting e))
-			 (try
-			  (show-times-for (nth people (.getSelectedIndex person-list)))
-			  (catch Exception e
-			    (JOptionPane/showMessageDialog (:time-table _interface) e))))))))))
+			 (let [people @all-people
+			       selected (.getSelectedIndex person-list)]
+			   (when (and (<= 0 selected) (< selected (count people)))
+			     (let [[firstname lastname] (.split (.getSelectedValue person-list) " ")
+				   person (person/find-by-name firstname lastname people)]
+			       (dosync 
+				(ref-set selected-person person))
+			       (show-times-for person)))))))))))
+
+(defn move-to-center [window]
+  (let [dim (.. Toolkit (getDefaultToolkit) (getScreenSize))
+	w (.. window (getSize) width)
+	h (.. window (getSize) height)
+	x (/ (- (. dim width) w) 2)
+	y (/ (- (. dim height) h) 3)]
+    (.setLocation window x y)))
+
+(defn login []
+  (let [dialog (JDialog. )
+	panel (JPanel. (MigLayout. "ins 10 10 0 10"))
+	username (JTextField.)
+	password (JPasswordField.)
+	sign-in (doto (JButton. "Sign in")
+		  (.addActionListener (proxy [ActionListener] []
+					(actionPerformed [e]
+							 (.hide dialog)))))]
+    (doto panel
+      (.add (JLabel. "Username") "wrap")
+      (.add username  "wrap,growx,pushx")
+      (.add (JLabel. "Password") "wrap")
+      (.add password "wrap,growx,pushx")
+      (.add sign-in "spanx 2, wrap"))
+    (.. dialog (getContentPane) (add panel))
+    (doto dialog
+      (.setModal true)
+      (.setTitle "Basecamp Login")
+      (.setSize (Dimension. 250 200))
+      (move-to-center)
+      (.show))
+    [(.getText username) (.getText password)]))
 
 (defn run []
   (let [people @all-people
@@ -171,24 +286,25 @@
 	  :time-table (JXTable. (DefaultTableModel.))
 	  :time-scroll-pane (JScrollPane.)
 	  :menu-bar (JMenuBar.)
-	  :file-menu (JMenu. "File"))]
+	  :file-menu (JMenu. "File")
+	  :view-menu (JMenu. "View")
+	  :show-all-users false)]
 
     (doto (:person-scroll-pane _interface)
       (.setViewportView (:person-list _interface)))
     (doto (:time-scroll-pane _interface)
       (.setViewportView (:time-table _interface)))
     (doto (:menu-bar _interface)
-      (.add (:file-menu _interface)))
+      (.add (:file-menu _interface))
+      (.add (:view-menu _interface)))
     (setup-file-menu _interface)
+    (setup-view-menu _interface)
     (doto (:left-panel _interface)
       (.add (JLabel. "People") "wrap")
       (.add (:person-scroll-pane _interface) "grow,push"))
     (doto (:right-panel _interface)
       (.add (JLabel. "Times") "wrap")
       (.add (:time-scroll-pane _interface) "grow,push"))
-    (doseq [person people]
-      (let [model (.getModel (:person-list _interface))]
-	(.addElement model (str (:firstname person) " " (:lastname person)))))
     (setup-time-table _interface)
     (setup-person-list _interface)
     (doto (:pane _interface)
@@ -199,5 +315,7 @@
       (.setJMenuBar (:menu-bar _interface))
       (.. (getContentPane) (add (:pane _interface)))
       (.setSize 750 500)
+      (move-to-center)
       (.setVisible true))
-    (dosync (ref-set interface _interface))))
+    (dosync (ref-set interface _interface))
+    nil))

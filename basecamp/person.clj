@@ -57,3 +57,11 @@
       (.setAutoCommit conn true)
       
       (.close conn))))
+
+(defn find-by-name [firstname lastname people]
+  (first 
+   (filter 
+    (fn [p]
+      (and (= (:firstname p) firstname)
+	   (= (:lastname p) lastname)))
+    people)))
