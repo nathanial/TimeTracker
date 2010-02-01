@@ -1,7 +1,9 @@
 (ns basecamp.gui
+  (:use basecamp.gutil)
   (:require [basecamp.person :as person] [basecamp.get :as get]
 	    [basecamp.time :as time]
-	    [basecamp.project :as project])
+	    [basecamp.project :as project]
+	    [basecamp.chart :as chart])
   (:import (javax.swing JFrame JPanel JLabel JButton JDialog JPasswordField
 			JSplitPane UIManager JList DefaultListModel
 			JScrollPane JTable JOptionPane ListSelectionModel
@@ -39,11 +41,11 @@
 
 (def interface (ref nil))
 
-(def refresh-dialog (ref nil))
+(def refresh-dialog (agent nil))
 
 (def selected-person (ref nil))
 
-(declare move-to-center refresh-person-list show-times-for)
+(declare refresh-person-list show-times-for)
 
 (defn show-refresh-progress []
   (swing
@@ -56,8 +58,7 @@
 	(.add (JLabel. "Refreshing Data") "wrap, align 50%")
 	(.add progress "push,grow"))
       (.. dialog (getContentPane) (add panel))
-      (dosync 
-       (ref-set refresh-dialog dialog))
+      (send refresh-dialog (fn [_] dialog))
       (doto dialog
 	(.setSize (Dimension. 200 100))
 	(move-to-center)
@@ -80,8 +81,8 @@
       (swing
 	(refresh-person-list)
 	(let [p @selected-person]
-	  (show-times-for (person/find-by-name (:firstname p) (:lastname p) @all-people)))
-	(.hide @refresh-dialog)))))
+	  (show-times-for (person/find-by-name (:firstname p) (:lastname p) @all-people)))))
+    (send refresh-dialog  #(swing (.hide %)))))
 
 (defn show-times-for [person]
   (let [times (:times person)
@@ -102,8 +103,10 @@
     (.. dialog (getContentPane) (add panel))
     (doto panel
       (.add (JLabel. "Export")))
-    (.setSize dialog (Dimension. 100 100))
-    (.show dialog)))
+    (doto dialog
+      (.setSize (Dimension. 100 100))
+      (move-to-center)
+      (.show))))
 
 (defn show-refresh-dialog []
   (let [dialog (JDialog. )
@@ -128,12 +131,7 @@
 					    (let [col (.getColumn e)
 						  first-row (.getFirstRow e)
 						  last-row (.getLastRow e)]
-					      (when (> first-row 0)
-						(JOptionPane/showMessageDialog 
-						 nil
-						 (let [person (nth people first-row)]
-						   (str (:firstname person) " "
-							(:lastname person)))))
+					      (when (> first-row 0) nil)
 ))))
     (doto model
       (.addColumn "Name" (into-array (map (fn [p] (str (:firstname p) " " (:lastname p))) people)))
@@ -154,8 +152,10 @@
       (.add person-scroll-pane "grow,push,wrap")
       (.add (JButton. "Notify...") "align right"))
     (.revalidate person-table)
-    (.setSize dialog (Dimension. 400 300))
-    (.show dialog)))
+    (doto dialog
+      (.setSize (Dimension. 400 300))
+      (move-to-center)
+      (.show))))
 
 (defn setup-file-menu [_interface]
   (doto (:file-menu _interface)
@@ -183,13 +183,25 @@
      (alter interface assoc :show-all-users (not value))))
   (refresh-person-list))
 
+(defn show-time-pie-chart []
+  (let [person @selected-person]
+    (if (not= nil person)
+      (chart/show-time-pie-chart @selected-person)
+      (JOptionPane/showMessageDialog (:frame @interface) "You must select a person over there in the person list before you can graph anything"))))
+
 (defn setup-view-menu [_interface]
   (doto (:view-menu _interface)
     (.add (doto (JCheckBoxMenuItem. "Show All Users")
 	    (.addActionListener 
 	     (proxy [ActionListener] []
 	       (actionPerformed [e]
-				(toggle-show-all-users))))))))
+				(toggle-show-all-users))))))
+    (.addSeparator)
+    (.add (doto (JMenuItem. "Graph...")
+	    (.addActionListener
+	     (proxy [ActionListener] []
+	       (actionPerformed [e]
+				(show-time-pie-chart))))))))
 
 (defn setup-time-table [_interface]
   (let [time-table (:time-table _interface)
@@ -240,14 +252,6 @@
 			       (dosync 
 				(ref-set selected-person person))
 			       (show-times-for person)))))))))))
-
-(defn move-to-center [window]
-  (let [dim (.. Toolkit (getDefaultToolkit) (getScreenSize))
-	w (.. window (getSize) width)
-	h (.. window (getSize) height)
-	x (/ (- (. dim width) w) 2)
-	y (/ (- (. dim height) h) 3)]
-    (.setLocation window x y)))
 
 (defn login []
   (let [dialog (JDialog. )

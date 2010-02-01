@@ -39,7 +39,7 @@
   (let [client (DefaultHttpClient.)
 	get (HttpGet. (str base-url 
 			   "time_entries/report.xml?"
-			   "from=20090801&"
+			   "from=20090101&"
 			   "to=20100201"))]
     (.. client (getCredentialsProvider)
 	(setCredentials AuthScope/ANY (create-auth-credentials)))
