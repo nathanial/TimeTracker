@@ -17,3 +17,7 @@
 	acc
 	(let [others (filter #(not= x %) xs)]
 	  (recur others (conj acc x)))))))
+
+(defn action-listener [function]
+  (proxy [java.awt.event.ActionListener] []
+    (actionPerformed [e] (function e))))

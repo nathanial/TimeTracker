@@ -119,10 +119,10 @@
 
 (defn create-person-table [people]
   (let [model (proxy [DefaultTableModel] []
-		(isCellEditable [row col] (= col 2)))
+		(isCellEditable [row col] (= col 1)))
 	table (proxy [JXTable] [model]
 		(getColumnClass [col]
-				(if (= 2 col)
+				(if (= 1 col)
 				  (Class/forName "java.lang.Boolean")
 				  (Class/forName "java.lang.Object"))))]
     (.addTableModelListener model 
@@ -135,25 +135,35 @@
 ))))
     (doto model
       (.addColumn "Name" (into-array (map (fn [p] (str (:firstname p) " " (:lastname p))) people)))
-      (.addColumn "Email" (into-array (map :email people)))
-      (.addColumn "Notify" (into-array (map (fn [x] false) people))))
-    (.. table (getColumnModel) (getColumn 2) (setMaxWidth 75))
+      (.addColumn "Graph" (into-array (map (fn [x] false) people))))
+    (.. table (getColumnModel) (getColumn 1) (setMaxWidth 75))
     (.revalidate table)
     table))
 
-(defn show-email-dialog []
-  (let [people @all-people
-	dialog (JDialog. (:frame @interface))
-	panel (JPanel. (MigLayout. ))
-	person-table (create-person-table people)
-	person-scroll-pane (JScrollPane. person-table)]
-    (.. dialog (getContentPane) (add panel))
+(defn show-chart-dialog [person]
+  (let [dialog (JDialog.)
+	panel (JPanel. (MigLayout. "ins 10 10 10 10"))
+	project-time (JButton. "Project Time")
+	hour-trends (JButton. "Hour Trends")
+	people-table (create-person-table (active-users @all-people))
+	people-table-pane (JScrollPane. people-table)]
+    (doto project-time
+      (.addActionListener 
+       (action-listener (fn [e] 
+			  (.hide dialog)
+			  (chart/show-time-pie-chart person)))))
+    (doto hour-trends
+      (.addActionListener
+       (action-listener (fn [e]
+			  (.hide dialog)
+			  (chart/show-hours-line-chart person)))))
     (doto panel
-      (.add person-scroll-pane "grow,push,wrap")
-      (.add (JButton. "Notify...") "align right"))
-    (.revalidate person-table)
+      (.add people-table-pane "spanx 2, wrap, push, grow")
+      (.add project-time "align right")
+      (.add hour-trends "wrap"))
     (doto dialog
       (.setSize (Dimension. 400 300))
+      (.setContentPane panel)
       (move-to-center)
       (.show))))
 
@@ -170,24 +180,13 @@
 	    (.addActionListener
 	     (proxy [ActionListener] []
 	       (actionPerformed [e]
-				(show-export-dialog))))))
-    (.add (doto (JMenuItem. "Email...")
-	    (.addActionListener
-	     (proxy [ActionListener] []
-	       (actionPerformed [e]
-				(show-email-dialog))))))))
+				(show-export-dialog))))))))
 
 (defn toggle-show-all-users []
   (dosync 
    (let [value (:show-all-users @interface)]
      (alter interface assoc :show-all-users (not value))))
   (refresh-person-list))
-
-(defn show-time-pie-chart []
-  (let [person @selected-person]
-    (if (not= nil person)
-      (chart/show-time-pie-chart @selected-person)
-      (JOptionPane/showMessageDialog (:frame @interface) "You must select a person over there in the person list before you can graph anything"))))
 
 (defn setup-view-menu [_interface]
   (doto (:view-menu _interface)
@@ -201,7 +200,7 @@
 	    (.addActionListener
 	     (proxy [ActionListener] []
 	       (actionPerformed [e]
-				(show-time-pie-chart))))))))
+				(show-chart-dialog @selected-person))))))))
 
 (defn setup-time-table [_interface]
   (let [time-table (:time-table _interface)
@@ -219,6 +218,13 @@
     (doto time-table
       (.setSortOrder "Date" SortOrder/DESCENDING))))
 
+(defn active-user? [person]
+  (not= 0 (count (:times person))))
+
+(defn active-users [people]
+  (filter active-user? people))
+
+
 (defn refresh-person-list []
   (let [_interface @interface
 	person-list (:person-list _interface)
@@ -227,7 +233,7 @@
 	model (.getModel person-list)]
     (.clear model)
     (doseq [person people]
-      (when (or show-all-users (not= 0 (count (:times person))))
+      (when (or show-all-users (active-user? person))
 	(.addElement model (str (:firstname person) " " (:lastname person)))))))
 
 (defn setup-person-list [_interface]
@@ -236,7 +242,7 @@
 	show-all-users (:show-all-users _interface)
 	model (.getModel person-list)]
     (doseq [person people]
-      (when (or show-all-users (not= 0 (count (:times person))))
+      (when (or show-all-users (active-user? person))
 	(.addElement model (str (:firstname person) " " (:lastname person)))))
     (doto (:person-list _interface)
       (.setSelectionMode ListSelectionModel/SINGLE_SELECTION)

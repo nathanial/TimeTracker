@@ -5,9 +5,8 @@
 
 (Class/forName "org.sqlite.JDBC")
 
-(when (not @get/credentials)
-  (let [credentials (gui/login)]
-    (dosync 
-     (ref-set get/credentials credentials))))
+(let [credentials (gui/login)]
+  (dosync 
+   (ref-set get/credentials credentials)))
 (gui/refresh-people)
 (gui/run)
